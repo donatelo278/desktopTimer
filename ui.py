@@ -314,10 +314,16 @@ class TimerApp(QMainWindow):
 
     # Проекты
     def add_project(self):
-        dialog = ProjectDialog(self)
-        if dialog.exec_() == QDialog.Accepted and dialog.get_name():
-            self.db.add_project(dialog.get_name())
-            self.update_projects_combo()
+        try:
+            dialog = self.ProjectDialog(self)  # Используем self.ProjectDialog
+            if dialog.exec_() == QDialog.Accepted:
+                name = dialog.get_name()
+                if name:  # Проверяем, что имя не пустое
+                    self.db.add_project(name)
+                    self.update_projects_combo()
+        except Exception as e:
+            print(f"Ошибка при создании проекта: {e}")
+            QMessageBox.critical(self, "Ошибка", f"Не удалось создать проект: {str(e)}")
 
     def edit_project(self):
         if not self.project_combo.currentData():
