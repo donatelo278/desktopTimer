@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 class TimerApp(QMainWindow):
     def __init__(self):
         super().__init__()
+        QApplication.setStyle('Fusion')  # Добавьте эту строку
         self.settings = Settings()
         self.settings.load()
         self.db = Database()
@@ -59,6 +60,8 @@ class TimerApp(QMainWindow):
         QMessageBox.information(self, "Сохранено", "Настройки успешно сохранены!")
 
     def show_settings_dialog(self):
+        print("Открытие диалога настроек...")  # Для отладки
+        print(f"Текущие настройки: interval={self.settings.check_interval}, sound={self.settings.enable_sound}")
         dialog = QDialog(self)
         dialog.setWindowTitle("Настройки")
         layout = QVBoxLayout()
@@ -88,13 +91,15 @@ class TimerApp(QMainWindow):
         dialog.exec_()
 
     def setup_settings_menu(self):
+        print("Создание меню настроек...")  # Добавьте эту строку для отладки
         menubar = self.menuBar()
+        print(f"Меню-бар: {menubar}")  # Проверка, что menubar существует
         settings_menu = menubar.addMenu('Настройки')
 
-        # Только один пункт меню - открытие диалога
         settings_action = QAction('Настройки...', self)
         settings_action.triggered.connect(self.show_settings_dialog)
         settings_menu.addAction(settings_action)
+        print("Меню настроек создано")  # Подтверждение создания
 
     def change_check_interval(self):
         minutes, ok = QInputDialog.getInt(
@@ -140,6 +145,11 @@ class TimerApp(QMainWindow):
 
         # Теперь можно безопасно обновлять комбобоксы
         self.update_projects_combo()  # Moved after setup_timer_tab()
+
+        # Добавьте временную кнопку для тестирования
+        test_btn = QPushButton("Тест настроек")
+        test_btn.clicked.connect(self.show_settings_dialog)
+        layout.addWidget(test_btn)
 
     def setup_management_buttons(self):
         """Инициализация кнопок управления"""
