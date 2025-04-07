@@ -193,3 +193,19 @@ class Database:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
+
+    def update_project(self, project_id: int, new_name: str) -> bool:
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "UPDATE projects SET name = ? WHERE id = ?",
+            (new_name, project_id))
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def update_task(self, task_id: int, new_name: str) -> bool:
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "UPDATE tasks SET name = ? WHERE id = ?",
+            (new_name, task_id))
+        self.conn.commit()
+        return cursor.rowcount > 0
