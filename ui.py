@@ -1,10 +1,13 @@
+from PyQt5.QtMultimedia import QSound
+from PyQt5.QtMultimedia import QSoundEffect
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QLabel, QPushButton, QComboBox, QMessageBox, QTabWidget,
                              QTableWidget, QTableWidgetItem, QDialog, QLineEdit, QDialogButtonBox,
-                            QMessageBox, QInputDialog)
-from PyQt5.QtCore import QTimer, Qt
+                             QMessageBox, QInputDialog, QAction)
+from PyQt5.QtCore import QTimer, Qt, QUrl
 from models import Project, Task, TimeRecord
 from database import Database
+from settings import Settings
 from timer_logic import Timer
 from datetime import datetime, timedelta
 
@@ -12,6 +15,8 @@ from datetime import datetime, timedelta
 class TimerApp(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.settings = Settings()
+        self.settings.load()
         self.db = Database()
         self.timer = Timer(self.on_timer_end)
         self.current_task_id = None
@@ -27,9 +32,44 @@ class TimerApp(QMainWindow):
         self.setup_ui()
         self.setup_timers()
 
+        self.sound_effect = QSoundEffect()
+        self.sound_effect.setSource(QUrl.fromLocalFile("alert.wav"))
+
+    def setup_settings_menu(self):
+        menubar = self.menuBar()
+        settings_menu = menubar.addMenu('Настройки')
+
+        # Настройка интервала
+        interval_action = QAction('Интервал проверки...', self)
+        interval_action.triggered.connect(self.change_interval)
+        settings_menu.addAction(interval_action)
+
+        # Включение звука
+        self.sound_action = QAction('Звуковое уведомление', self, checkable=True)
+        self.sound_action.setChecked(self.settings.enable_sound)
+        self.sound_action.triggered.connect(self.toggle_sound)
+        settings_menu.addAction(self.sound_action)
+
+    def change_interval(self):
+        minutes, ok = QInputDialog.getInt(
+            self, 'Настройка интервала',
+            'Интервал проверки активности (минуты):',
+            value=self.settings.check_interval // 60,
+            min=1, max=120
+        )
+        if ok:
+            self.settings.check_interval = minutes * 60
+            self.settings.save()
+            self.check_timer.setInterval(self.settings.check_interval * 1000)
+
+    def toggle_sound(self, checked):
+        self.settings.enable_sound = checked
+        self.settings.save()
+
     def setup_ui(self):
         self.setWindowTitle("Task Timer")
         self.setGeometry(100, 100, 600, 400)
+        self.setup_settings_menu()
 
         # Главный виджет
         main_widget = QWidget()
@@ -40,17 +80,18 @@ class TimerApp(QMainWindow):
         self.tabs = QTabWidget()
         layout.addWidget(self.tabs)
 
-        # Сначала создаём кнопки управления
+        # Сначала инициализируем кнопки управления
         self.setup_management_buttons()
 
-        # Вкладка таймера
-        self.setup_timer_tab()
-
-        # Вкладка статистики
+        # Затем создаем вкладки
+        self.setup_timer_tab()  # This initializes task_combo
         self.setup_stats_tab()
 
+        # Теперь можно безопасно обновлять комбобоксы
+        self.update_projects_combo()  # Moved after setup_timer_tab()
+
     def setup_management_buttons(self):
-        """Инициализация кнопок управления (без размещения в layout)"""
+        """Инициализация кнопок управления"""
         self.add_project_btn = QPushButton("+ Проект")
         self.edit_project_btn = QPushButton("✎ Проект")
         self.del_project_btn = QPushButton("🗑 Проект")
@@ -79,7 +120,6 @@ class TimerApp(QMainWindow):
 
         # Выбор проекта
         self.project_combo = QComboBox()
-        self.update_projects_combo()
         timer_layout.addWidget(QLabel("Проект:"))
         timer_layout.addWidget(self.project_combo)
 
@@ -89,6 +129,10 @@ class TimerApp(QMainWindow):
         timer_layout.addWidget(self.task_combo)
         self.project_combo.currentIndexChanged.connect(self.update_tasks_combo)
 
+        # Теперь, когда оба комбобокса созданы, можно их заполнить
+        self.update_projects_combo()  # Перенесено после создания task_combo
+
+        # Остальной код остается без изменений...
         # Кнопки управления проектами/задачами
         buttons_container = QWidget()
         mgmt_layout = QHBoxLayout(buttons_container)
@@ -236,13 +280,28 @@ class TimerApp(QMainWindow):
         for project in projects:
             self.project_combo.addItem(project.name, project.id)
 
+        # Автоматически обновляем задачи
+        self.update_tasks_combo()
+
+        # Блокируем кнопки если нет проектов
+        has_projects = len(projects) > 0
+        self.edit_project_btn.setEnabled(has_projects)
+        self.del_project_btn.setEnabled(has_projects)
+        self.add_task_btn.setEnabled(has_projects)
+
     def update_tasks_combo(self):
         self.task_combo.clear()
         project_id = self.project_combo.currentData()
+
         if project_id:
             tasks = self.db.get_tasks_for_project(project_id)
             for task in tasks:
                 self.task_combo.addItem(task.name, task.id)
+
+        # Блокируем кнопки если нет задач
+        has_tasks = self.task_combo.count() > 0
+        self.edit_task_btn.setEnabled(has_tasks)
+        self.del_task_btn.setEnabled(has_tasks)
 
     def update_display(self):
         elapsed = self.timer.get_elapsed_time()
@@ -250,7 +309,21 @@ class TimerApp(QMainWindow):
 
     def check_work_time(self):
         if self.timer.is_running:
-            self.timer.check_timer()
+            if self.settings.enable_sound:
+                QSound.play("alert.wav")  # Нужен файл alert.wav в папке с программой
+
+            reply = QMessageBox.question(
+                self, 'Подтверждение',
+                "Вы все еще работаете над задачей?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+
+            if reply == QMessageBox.No:
+                self.timer.pause()
+            else:
+                # Сбрасываем таймер проверки
+                self.check_timer.start(self.settings.check_interval * 1000)
 
     def start_timer(self):
         if self.task_combo.currentIndex() == -1:
@@ -583,27 +656,8 @@ class TimerApp(QMainWindow):
             self.db.conn.commit()
             self.update_tasks_combo()
 
-    def update_projects_combo(self):
-        self.project_combo.clear()
-        projects = self.db.get_projects()
-        for project in projects:
-            self.project_combo.addItem(project.name, project.id)
-
         # Блокируем кнопки если нет проектов
         has_projects = len(projects) > 0
         self.edit_project_btn.setEnabled(has_projects)
         self.del_project_btn.setEnabled(has_projects)
         self.add_task_btn.setEnabled(has_projects)
-
-    def update_tasks_combo(self):
-        self.task_combo.clear()
-        project_id = self.project_combo.currentData()
-        if project_id:
-            tasks = self.db.get_tasks_for_project(project_id)
-            for task in tasks:
-                self.task_combo.addItem(task.name, task.id)
-
-        # Блокируем кнопки если нет задач
-        has_tasks = self.task_combo.count() > 0
-        self.edit_task_btn.setEnabled(has_tasks)
-        self.del_task_btn.setEnabled(has_tasks)
