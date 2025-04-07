@@ -6,7 +6,7 @@ from PyQt5.QtCore import QTimer, Qt
 from models import Project, Task, TimeRecord
 from database import Database
 from timer_logic import Timer
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 class TimerApp(QMainWindow):
@@ -111,18 +111,33 @@ class TimerApp(QMainWindow):
         timer_buttons = QHBoxLayout()
         self.start_button = QPushButton("Старт")
         self.pause_button = QPushButton("Пауза")
+        self.stop_button = QPushButton("Стоп")  # Новая кнопка
         self.reset_button = QPushButton("Сброс")
 
         self.start_button.clicked.connect(self.start_timer)
         self.pause_button.clicked.connect(self.pause_timer)
+        self.stop_button.clicked.connect(self.stop_timer)  # Новый обработчик
         self.reset_button.clicked.connect(self.reset_timer)
 
         timer_buttons.addWidget(self.start_button)
         timer_buttons.addWidget(self.pause_button)
+        timer_buttons.addWidget(self.stop_button)
         timer_buttons.addWidget(self.reset_button)
 
         timer_layout.addLayout(timer_buttons)
         self.tabs.addTab(timer_tab, "Таймер")
+        self.stop_button.setStyleSheet("""
+            QPushButton {
+                background-color: #ff4444;
+                color: white;
+                font-weight: bold;
+                border-radius: 4px;
+                padding: 5px;
+            }
+            QPushButton:hover {
+                background-color: #cc0000;
+            }
+        """)
 
     def setup_stats_tab(self):
         stats_tab = QWidget()
@@ -178,32 +193,78 @@ class TimerApp(QMainWindow):
         self.timer.start()
 
     def pause_timer(self):
-        self.timer.pause()
+        if self.timer.is_running:
+            self.timer.pause()
+        else:
+            QMessageBox.information(self, "Инфо", "Таймер уже на паузе")
 
     def reset_timer(self):
+        if self.timer.get_elapsed_time() > 0:
+            reply = QMessageBox.question(
+                self, "Подтверждение",
+                "Сбросить таймер без сохранения?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No)
+
+            if reply == QMessageBox.Yes:
+                self.timer.reset()
+        else:
+            self.timer.reset()
+        self.update_display()
+
+    def stop_timer(self):
+        if not self.timer.is_running and self.timer.get_elapsed_time() == 0:
+            return
+
+        elapsed = self.timer.get_elapsed_time()
+        if elapsed > 0:  # Если есть что сохранять
+            reply = QMessageBox.question(
+                self, 'Сохранение времени',
+                f"Сохранить {self.timer.format_time(elapsed)} работы?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes)
+
+            if reply == QMessageBox.Yes:
+                self.save_time_record(elapsed)
+
         self.timer.reset()
+        self.update_display()
+
+    def save_time_record(self, elapsed_seconds: int):
+        try:
+            if not self.current_task_id:
+                QMessageBox.warning(self, "Ошибка", "Не выбрана задача!")
+                return
+
+            # Получаем текущее время
+            end_time = datetime.now()
+            # Вычисляем время начала (текущее время минус прошедшие секунды)
+            start_time = end_time - timedelta(seconds=elapsed_seconds)
+
+            # Сохраняем в БД в правильном формате
+            self.db.add_time_record(
+                task_id=self.current_task_id,
+                start_time=start_time,  # Передаем объект datetime напрямую
+                end_time=end_time,  # Передаем объект datetime напрямую
+                duration_seconds=elapsed_seconds,
+                was_productive=True
+            )
+            self.update_stats_table()
+            QMessageBox.information(self, "Сохранено", "Время работы сохранено!")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"Не удалось сохранить время: {str(e)}")
+            print(f"Ошибка сохранения: {e}")
 
     def on_timer_end(self, elapsed_seconds: int):
         reply = QMessageBox.question(
             self, 'Подтверждение',
-            "Вы работали?",
+            "Вы работали над задачей?",
             QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
+            QMessageBox.Yes)
 
-        was_productive = reply == QMessageBox.Yes
-
-        if was_productive:
-            start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            end_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            self.db.add_time_record(
-                task_id=self.current_task_id,
-                start_time=start_time,
-                end_time=end_time,
-                duration_seconds=elapsed_seconds,
-                was_productive=was_productive
-            )
-            self.update_stats_table()
+        if reply == QMessageBox.Yes:
+            self.save_time_record(elapsed_seconds)
 
         self.timer.reset()
 

@@ -82,13 +82,14 @@ class Database:
 
     # Методы для работы с записями времени
     def add_time_record(self, task_id: int, start_time: datetime, end_time: datetime,
-                       duration_seconds: int, was_productive: bool) -> TimeRecord:
+                        duration_seconds: int, was_productive: bool) -> TimeRecord:
         cursor = self.conn.cursor()
         cursor.execute('''
         INSERT INTO time_records 
         (task_id, start_time, end_time, duration_seconds, was_productive) 
         VALUES (?, ?, ?, ?, ?)''',
-        (task_id, start_time.isoformat(), end_time.isoformat(), duration_seconds, was_productive))
+                       (task_id, start_time.isoformat(), end_time.isoformat(),  # Преобразуем datetime в строку ISO формата
+                        duration_seconds, was_productive))
         self.conn.commit()
         return TimeRecord(
             id=cursor.lastrowid,
