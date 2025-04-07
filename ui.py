@@ -36,12 +36,12 @@ class TimerApp(QMainWindow):
         self.sound_effect.setSource(QUrl.fromLocalFile("alert.wav"))
 
     def save_settings(self, dialog):
-        # Сохраняем настройки
+        """Сохраняет настройки и перезапускает таймер"""
         self.settings.check_interval = self.interval_spinbox.value() * 60
         self.settings.enable_sound = self.sound_checkbox.isChecked()
         self.settings.save()
 
-        # Перезапускаем таймер с новыми настройками
+        # Перезапускаем таймер проверки
         self.check_timer.stop()
         self.check_timer.start(self.settings.check_interval * 1000)
 
@@ -53,7 +53,7 @@ class TimerApp(QMainWindow):
         dialog.setWindowTitle("Настройки")
         layout = QVBoxLayout()
 
-        # Настройка интервала проверки
+        # Настройка интервала (минуты)
         interval_layout = QHBoxLayout()
         interval_label = QLabel("Интервал проверки активности (минут):")
         self.interval_spinbox = QSpinBox()
@@ -63,7 +63,7 @@ class TimerApp(QMainWindow):
         interval_layout.addWidget(self.interval_spinbox)
         layout.addLayout(interval_layout)
 
-        # Настройка звукового уведомления
+        # Чекбокс звука
         self.sound_checkbox = QCheckBox("Включить звуковое уведомление")
         self.sound_checkbox.setChecked(self.settings.enable_sound)
         layout.addWidget(self.sound_checkbox)
@@ -81,16 +81,10 @@ class TimerApp(QMainWindow):
         menubar = self.menuBar()
         settings_menu = menubar.addMenu('Настройки')
 
-        # Настройка интервала проверки
-        interval_action = QAction('Интервал проверки активности...', self)
-        interval_action.triggered.connect(self.change_check_interval)
-        settings_menu.addAction(interval_action)
-
-        # Включение звука
-        self.sound_action = QAction('Звуковое уведомление', self, checkable=True)
-        self.sound_action.setChecked(self.settings.enable_sound)
-        self.sound_action.triggered.connect(self.toggle_sound)
-        settings_menu.addAction(self.sound_action)
+        # Только один пункт меню - открытие диалога
+        settings_action = QAction('Настройки...', self)
+        settings_action.triggered.connect(self.show_settings_dialog)
+        settings_menu.addAction(settings_action)
 
     def change_check_interval(self):
         minutes, ok = QInputDialog.getInt(
@@ -108,21 +102,9 @@ class TimerApp(QMainWindow):
             QMessageBox.information(self, "Сохранено",
                                     f"Новый интервал проверки: {minutes} минут")
 
-    def change_interval(self):
-        minutes, ok = QInputDialog.getInt(
-            self, 'Настройка интервала',
-            'Интервал проверки активности (минуты):',
-            value=self.settings.check_interval // 60,
-            min=1, max=120
-        )
-        if ok:
-            self.settings.check_interval = minutes * 60
-            self.settings.save()
-            self.check_timer.setInterval(self.settings.check_interval * 1000)
 
-    def toggle_sound(self, checked):
-        self.settings.enable_sound = checked
-        self.settings.save()
+
+
 
     def setup_ui(self):
         self.setWindowTitle("Task Timer")
@@ -366,27 +348,34 @@ class TimerApp(QMainWindow):
         self.timer_label.setText(self.timer.format_time(elapsed))
 
     def check_work_time(self):
-        if self.timer.is_running:
-            # Приостанавливаем таймер перед показом сообщения
-            was_running = self.timer.is_running
-            self.timer.pause()
+        if not self.timer.is_running:
+            return
 
-            # Воспроизводим звук, если включено
-            if self.settings.enable_sound:
-                QSound.play("alert.wav")
+        elapsed = self.timer.get_elapsed_time()  # Фиксируем время ДО паузы
 
-            reply = QMessageBox.question(
-                self, 'Подтверждение',
-                f"Вы работали над задачей последние {self.settings.check_interval // 60} минут?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes)
+        # Приостанавливаем таймер на время вопроса
+        self.timer.pause()
 
-            if reply == QMessageBox.Yes:
-                if was_running:
-                    self.timer.start()  # Продолжаем работу
-                self.check_timer.start(self.settings.check_interval * 1000)
-            else:
-                self.timer.reset()  # Сбрасываем таймер
+        # Звук, если включён
+        if self.settings.enable_sound:
+            QSound.play("alert.wav")
+
+        reply = QMessageBox.question(
+            self, 'Подтверждение',
+            f"Вы работали последние {elapsed // 60} мин. {elapsed % 60} сек.?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes
+        )
+
+        if reply == QMessageBox.Yes:
+            self.save_time_record(elapsed)  # Сохраняем время
+            self.timer.reset()  # Сбрасываем таймер
+            self.timer.start()  # Запускаем заново
+        else:
+            self.timer.reset()  # Полный сброс, если "Нет"
+
+        # Перезапускаем проверку
+        self.check_timer.start(self.settings.check_interval * 1000)
 
     def start_timer(self):
         if self.task_combo.currentIndex() == -1:
@@ -438,30 +427,30 @@ class TimerApp(QMainWindow):
         self.update_display()
 
     def save_time_record(self, elapsed_seconds: int):
-        try:
-            if not self.current_task_id:
-                QMessageBox.warning(self, "Ошибка", "Не выбрана задача!")
-                return
+        if not self.current_task_id or elapsed_seconds <= 0:
+            return
 
-            # Получаем текущее время
+        # Проверяем, нет ли дубликата записи
+        cursor = self.db.conn.cursor()
+        cursor.execute('''
+        SELECT id FROM time_records 
+        WHERE task_id = ? 
+        AND abs(duration_seconds - ?) < 5  # Если разница < 5 сек. - считаем дублем
+        LIMIT 1
+        ''', (self.current_task_id, elapsed_seconds))
+
+        if not cursor.fetchone():  # Если дубля нет
             end_time = datetime.now()
-            # Вычисляем время начала (текущее время минус прошедшие секунды)
             start_time = end_time - timedelta(seconds=elapsed_seconds)
 
-            # Сохраняем в БД в правильном формате
             self.db.add_time_record(
                 task_id=self.current_task_id,
-                start_time=start_time,  # Передаем объект datetime напрямую
-                end_time=end_time,  # Передаем объект datetime напрямую
+                start_time=start_time,
+                end_time=end_time,
                 duration_seconds=elapsed_seconds,
                 was_productive=True
             )
             self.update_stats_table()
-            QMessageBox.information(self, "Сохранено", "Время работы сохранено!")
-
-        except Exception as e:
-            QMessageBox.critical(self, "Ошибка", f"Не удалось сохранить время: {str(e)}")
-            print(f"Ошибка сохранения: {e}")
 
     def on_timer_end(self, elapsed_seconds: int):
         reply = QMessageBox.question(
