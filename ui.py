@@ -35,9 +35,15 @@ class TimerApp(QMainWindow):
 
         self.setup_ui()
         self.setup_timers()
+        self.setup_settings_menu()  # Добавьте эту строку
 
+        # Инициализация звука
         self.sound_effect = QSoundEffect()
-        self.sound_effect.setSource(QUrl.fromLocalFile("audio/audio1.wav"))
+        sound_file = QUrl.fromLocalFile("audio/audio1.wav")
+        if sound_file.isValid():
+            self.sound_effect.setSource(sound_file)
+        else:
+            print("Не удалось загрузить звуковой файл")
 
     def save_settings(self, dialog):
         """Сохраняет настройки и перезапускает таймер"""
@@ -113,6 +119,7 @@ class TimerApp(QMainWindow):
     def setup_ui(self):
         self.setWindowTitle("Task Timer")
         self.setGeometry(100, 100, 600, 400)
+        # Добавьте эту строку для инициализации меню настроек
         self.setup_settings_menu()
 
         # Главный виджет
@@ -355,34 +362,35 @@ class TimerApp(QMainWindow):
         if not self.timer.is_running:
             return
 
-        # Фиксируем время ДО паузы
-        elapsed = self.timer.get_elapsed_time()
+        try:
+            # Фиксируем время до паузы
+            elapsed = self.timer.get_elapsed_time()
+            self.timer.pause()
 
-        # Приостанавливаем таймер на время вопроса
-        was_running = self.timer.is_running
-        self.timer.pause()
+            # Убедимся, что звук загружен
+            if self.settings.enable_sound and self.sound_effect.isLoaded():
+                self.sound_effect.play()
 
-        # Звук, если включён
-        if self.settings.enable_sound:
-            self.sound_effect.play()
+            reply = QMessageBox.question(
+                self, 'Подтверждение',
+                f"Вы работали последние {elapsed // 60} мин. {elapsed % 60} сек.?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
 
-        reply = QMessageBox.question(
-            self, 'Подтверждение',
-            f"Вы работали последние {elapsed // 60} мин. {elapsed % 60} сек.?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.Yes
-        )
+            if reply == QMessageBox.Yes:
+                self.save_time_record(elapsed)
+                self.timer.reset()
+                self.timer.start()  # Перезапускаем таймер
+            else:
+                self.timer.reset()
 
-        if reply == QMessageBox.Yes:
-            self.save_time_record(elapsed)  # Сохраняем время
-            self.timer.reset()  # Сбрасываем таймер
-            if was_running:
-                self.timer.start()  # Запускаем заново, если был запущен
-        else:
-            self.timer.reset()  # Полный сброс, если "Нет"
-
-        # Перезапускаем проверку
-        self.check_timer.start(self.settings.check_interval * 1000)
+        except Exception as e:
+            print(f"Ошибка в check_work_time: {e}")
+            self.timer.reset()
+        finally:
+            # Всегда перезапускаем таймер проверки
+            self.check_timer.start(self.settings.check_interval * 1000)
 
     def start_timer(self):
         if self.task_combo.currentIndex() == -1:
@@ -416,48 +424,56 @@ class TimerApp(QMainWindow):
         self.update_display()
 
     def stop_timer(self):
-        if not self.timer.is_running and self.timer.get_elapsed_time() == 0:
-            return
+        try:
+            if not self.timer.is_running and self.timer.get_elapsed_time() == 0:
+                return
 
-        elapsed = self.timer.get_elapsed_time()
-        if elapsed > 0:  # Если есть что сохранять
-            reply = QMessageBox.question(
-                self, 'Сохранение времени',
-                f"Сохранить {self.timer.format_time(elapsed)} работы?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes)
+            elapsed = self.timer.get_elapsed_time()
+            if elapsed > 0:
+                reply = QMessageBox.question(
+                    self, 'Сохранение времени',
+                    f"Сохранить {self.timer.format_time(elapsed)} работы?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.Yes)
 
-            if reply == QMessageBox.Yes:
-                self.save_time_record(elapsed)
+                if reply == QMessageBox.Yes:
+                    self.save_time_record(elapsed)
 
-        self.timer.reset()
-        self.update_display()
+            self.timer.reset()
+            self.update_display()
+        except Exception as e:
+            print(f"Ошибка в stop_timer: {e}")
+            QMessageBox.critical(self, "Ошибка", f"Не удалось остановить таймер: {str(e)}")
+            self.timer.reset()
 
     def save_time_record(self, elapsed_seconds: int):
         if not self.current_task_id or elapsed_seconds <= 0:
             return
 
-        # Проверяем, нет ли дубликата записи
-        cursor = self.db.conn.cursor()
-        cursor.execute('''
-        SELECT id FROM time_records 
-        WHERE task_id = ? 
-        AND abs(duration_seconds - ?) < 5  # Если разница < 5 сек. - считаем дублем
-        LIMIT 1
-        ''', (self.current_task_id, elapsed_seconds))
+        try:
+            cursor = self.db.conn.cursor()
+            cursor.execute('''
+            SELECT id FROM time_records 
+            WHERE task_id = ? 
+            AND abs(duration_seconds - ?) < 5  -- Если разница < 5 сек. - считаем дублем
+            LIMIT 1
+            ''', (self.current_task_id, elapsed_seconds))
 
-        if not cursor.fetchone():  # Если дубля нет
-            end_time = datetime.now()
-            start_time = end_time - timedelta(seconds=elapsed_seconds)
+            if not cursor.fetchone():  # Если дубля нет
+                end_time = datetime.now()
+                start_time = end_time - timedelta(seconds=elapsed_seconds)
 
-            self.db.add_time_record(
-                task_id=self.current_task_id,
-                start_time=start_time,
-                end_time=end_time,
-                duration_seconds=elapsed_seconds,
-                was_productive=True
-            )
-            self.update_stats_table()
+                self.db.add_time_record(
+                    task_id=self.current_task_id,
+                    start_time=start_time,
+                    end_time=end_time,
+                    duration_seconds=elapsed_seconds,
+                    was_productive=True
+                )
+                self.update_stats_table()
+        except Exception as e:
+            print(f"Ошибка при сохранении записи времени: {e}")
+            QMessageBox.critical(self, "Ошибка", f"Не удалось сохранить время: {str(e)}")
 
     def on_timer_end(self, elapsed_seconds: int):
         reply = QMessageBox.question(
