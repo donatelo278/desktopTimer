@@ -21,6 +21,10 @@ class TimerApp(QMainWindow):
         self.timer = Timer(self.on_timer_end)
         self.current_task_id = None
 
+        # Добавьте эти строки
+        self.interval_spinbox = None
+        self.sound_checkbox = None
+
         # Сначала инициализируем кнопки управления
         self.add_project_btn = None
         self.edit_project_btn = None
@@ -56,7 +60,7 @@ class TimerApp(QMainWindow):
         # Настройка интервала (минуты)
         interval_layout = QHBoxLayout()
         interval_label = QLabel("Интервал проверки активности (минут):")
-        self.interval_spinbox = QSpinBox()
+        self.interval_spinbox = QSpinBox()  # Теперь это поле класса
         self.interval_spinbox.setRange(1, 120)  # от 1 до 120 минут
         self.interval_spinbox.setValue(self.settings.check_interval // 60)
         interval_layout.addWidget(interval_label)
@@ -64,7 +68,7 @@ class TimerApp(QMainWindow):
         layout.addLayout(interval_layout)
 
         # Чекбокс звука
-        self.sound_checkbox = QCheckBox("Включить звуковое уведомление")
+        self.sound_checkbox = QCheckBox("Включить звуковое уведомление")  # Теперь это поле класса
         self.sound_checkbox.setChecked(self.settings.enable_sound)
         layout.addWidget(self.sound_checkbox)
 
@@ -351,14 +355,16 @@ class TimerApp(QMainWindow):
         if not self.timer.is_running:
             return
 
-        elapsed = self.timer.get_elapsed_time()  # Фиксируем время ДО паузы
+        # Фиксируем время ДО паузы
+        elapsed = self.timer.get_elapsed_time()
 
         # Приостанавливаем таймер на время вопроса
+        was_running = self.timer.is_running
         self.timer.pause()
 
         # Звук, если включён
         if self.settings.enable_sound:
-            QSound.play("audio/audio1.wav")
+            self.sound_effect.play()
 
         reply = QMessageBox.question(
             self, 'Подтверждение',
@@ -370,7 +376,8 @@ class TimerApp(QMainWindow):
         if reply == QMessageBox.Yes:
             self.save_time_record(elapsed)  # Сохраняем время
             self.timer.reset()  # Сбрасываем таймер
-            self.timer.start()  # Запускаем заново
+            if was_running:
+                self.timer.start()  # Запускаем заново, если был запущен
         else:
             self.timer.reset()  # Полный сброс, если "Нет"
 
