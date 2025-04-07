@@ -33,7 +33,7 @@ class TimerApp(QMainWindow):
         self.setup_timers()
 
         self.sound_effect = QSoundEffect()
-        self.sound_effect.setSource(QUrl.fromLocalFile("alert.wav"))
+        self.sound_effect.setSource(QUrl.fromLocalFile("audio/audio1.wav"))
 
     def save_settings(self, dialog):
         """Сохраняет настройки и перезапускает таймер"""
@@ -358,7 +358,7 @@ class TimerApp(QMainWindow):
 
         # Звук, если включён
         if self.settings.enable_sound:
-            QSound.play("alert.wav")
+            QSound.play("audio/audio1.wav")
 
         reply = QMessageBox.question(
             self, 'Подтверждение',
