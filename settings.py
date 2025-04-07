@@ -1,4 +1,5 @@
 import json
+import os
 
 
 class Settings:
@@ -9,14 +10,20 @@ class Settings:
 
     def save(self):
         with open('settings.json', 'w') as f:
-            json.dump({'check_interval': self.check_interval,
-                       'enable_sound': self.enable_sound}, f)
+            json.dump({
+                'check_interval': self.check_interval,
+                'enable_sound': self.enable_sound
+            }, f)
 
     def load(self):
         try:
-            with open('settings.json', 'r') as f:
-                data = json.load(f)
-                self.check_interval = max(60, min(data.get('check_interval', 300), 7200))  # 1-120 минут
-                self.enable_sound = bool(data.get('enable_sound', True))
-        except (FileNotFoundError, json.JSONDecodeError):
-            self.save()  # Создаем файл с настройками по умолчанию
+            if os.path.exists('settings.json'):
+                with open('settings.json', 'r') as f:
+                    data = json.load(f)
+                    self.check_interval = data.get('check_interval', 300)
+                    self.enable_sound = data.get('enable_sound', True)
+            else:
+                self.save()  # Создаем файл с настройками по умолчанию
+        except Exception as e:
+            print(f"Ошибка загрузки настроек: {e}")
+            self.save()  # Пересоздаем файл при ошибке

@@ -3,7 +3,7 @@ from PyQt5.QtMultimedia import QSoundEffect
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QLabel, QPushButton, QComboBox, QMessageBox, QTabWidget,
                              QTableWidget, QTableWidgetItem, QDialog, QLineEdit, QDialogButtonBox,
-                             QMessageBox, QInputDialog, QAction)
+                             QMessageBox, QInputDialog, QAction, QCheckBox, QSpinBox)
 from PyQt5.QtCore import QTimer, Qt, QUrl
 from models import Project, Task, TimeRecord
 from database import Database
@@ -34,6 +34,48 @@ class TimerApp(QMainWindow):
 
         self.sound_effect = QSoundEffect()
         self.sound_effect.setSource(QUrl.fromLocalFile("alert.wav"))
+
+    def save_settings(self, dialog):
+        # Сохраняем настройки
+        self.settings.check_interval = self.interval_spinbox.value() * 60
+        self.settings.enable_sound = self.sound_checkbox.isChecked()
+        self.settings.save()
+
+        # Перезапускаем таймер с новыми настройками
+        self.check_timer.stop()
+        self.check_timer.start(self.settings.check_interval * 1000)
+
+        dialog.accept()
+        QMessageBox.information(self, "Сохранено", "Настройки успешно сохранены!")
+
+    def show_settings_dialog(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Настройки")
+        layout = QVBoxLayout()
+
+        # Настройка интервала проверки
+        interval_layout = QHBoxLayout()
+        interval_label = QLabel("Интервал проверки активности (минут):")
+        self.interval_spinbox = QSpinBox()
+        self.interval_spinbox.setRange(1, 120)  # от 1 до 120 минут
+        self.interval_spinbox.setValue(self.settings.check_interval // 60)
+        interval_layout.addWidget(interval_label)
+        interval_layout.addWidget(self.interval_spinbox)
+        layout.addLayout(interval_layout)
+
+        # Настройка звукового уведомления
+        self.sound_checkbox = QCheckBox("Включить звуковое уведомление")
+        self.sound_checkbox.setChecked(self.settings.enable_sound)
+        layout.addWidget(self.sound_checkbox)
+
+        # Кнопки OK/Отмена
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(lambda: self.save_settings(dialog))
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        dialog.setLayout(layout)
+        dialog.exec_()
 
     def setup_settings_menu(self):
         menubar = self.menuBar()
@@ -325,22 +367,26 @@ class TimerApp(QMainWindow):
 
     def check_work_time(self):
         if self.timer.is_running:
-            self.timer.pause()  # Приостанавливаем таймер перед показом сообщения
+            # Приостанавливаем таймер перед показом сообщения
+            was_running = self.timer.is_running
+            self.timer.pause()
 
+            # Воспроизводим звук, если включено
             if self.settings.enable_sound:
                 QSound.play("alert.wav")
 
             reply = QMessageBox.question(
                 self, 'Подтверждение',
-                "Вы все еще работаете над задачей?",
+                f"Вы работали над задачей последние {self.settings.check_interval // 60} минут?",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.Yes)
 
             if reply == QMessageBox.Yes:
-                self.timer.start()  # Продолжаем работу
+                if was_running:
+                    self.timer.start()  # Продолжаем работу
                 self.check_timer.start(self.settings.check_interval * 1000)
             else:
-                self.timer.reset()  # Полностью сбрасываем таймер
+                self.timer.reset()  # Сбрасываем таймер
 
     def start_timer(self):
         if self.task_combo.currentIndex() == -1:
@@ -349,6 +395,9 @@ class TimerApp(QMainWindow):
 
         self.current_task_id = self.task_combo.currentData()
         self.timer.start()
+        # Перезапускаем таймер проверки с текущими настройками
+        self.check_timer.stop()
+        self.check_timer.start(self.settings.check_interval * 1000)
 
     def pause_timer(self):
         if self.timer.is_running:
