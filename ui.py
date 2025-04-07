@@ -367,15 +367,25 @@ class TimerApp(QMainWindow):
 
     # Задачи
     def add_task(self):
-        if not self.project_combo.currentData():
-            QMessageBox.warning(self, "Ошибка", "Сначала выберите проект!")
-            return
+        try:
+            # Проверяем, что выбран проект
+            if not self.project_combo.currentData():
+                QMessageBox.warning(self, "Ошибка", "Сначала выберите проект!")
+                return
 
-        dialog = TaskDialog(self)
-        if dialog.exec_() == QDialog.Accepted and dialog.get_name():
-            project_id = self.project_combo.currentData()
-            self.db.add_task(project_id, dialog.get_name())
-            self.update_tasks_combo()
+            # Создаем и показываем диалог
+            dialog = self.TaskDialog(self)
+            if dialog.exec_() == QDialog.Accepted:
+                name = dialog.get_name()
+                if name:  # Проверяем, что имя не пустое
+                    project_id = self.project_combo.currentData()
+                    # Добавляем задержку для теста (можно убрать потом)
+                    QApplication.processEvents()
+                    self.db.add_task(project_id, name)
+                    self.update_tasks_combo()
+        except Exception as e:
+            print(f"Ошибка при создании задачи: {e}")
+            QMessageBox.critical(self, "Ошибка", f"Не удалось создать задачу:\n{str(e)}")
 
     def edit_task(self):
         if not self.task_combo.currentData():
