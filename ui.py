@@ -143,13 +143,81 @@ class TimerApp(QMainWindow):
         stats_tab = QWidget()
         stats_layout = QVBoxLayout(stats_tab)
 
+        # Фильтры
+        filter_widget = QWidget()
+        filter_layout = QHBoxLayout(filter_widget)
+
+        self.filter_project_combo = QComboBox()
+        self.filter_project_combo.addItem("Все проекты", None)
+        self.filter_task_combo = QComboBox()
+        self.filter_task_combo.addItem("Все задачи", None)
+
+        self.filter_project_combo.currentIndexChanged.connect(
+            lambda: self.update_filter_task_combo())
+
+        filter_layout.addWidget(QLabel("Проект:"))
+        filter_layout.addWidget(self.filter_project_combo)
+        filter_layout.addWidget(QLabel("Задача:"))
+        filter_layout.addWidget(self.filter_task_combo)
+
+        self.apply_filter_btn = QPushButton("Применить фильтр")
+        self.apply_filter_btn.clicked.connect(self.update_stats_table)
+        filter_layout.addWidget(self.apply_filter_btn)
+
+        stats_layout.addWidget(filter_widget)
+
+        # Общее время
+        self.total_time_label = QLabel("Общее время: 00:00:00")
+        self.total_time_label.setStyleSheet("font-size: 14px; font-weight: bold;")
+        stats_layout.addWidget(self.total_time_label)
+
+        # Таблица
         self.stats_table = QTableWidget()
-        self.stats_table.setColumnCount(5)
-        self.stats_table.setHorizontalHeaderLabels(["Проект", "Задача", "Время", "Дата", "Продуктивно"])
+        self.stats_table.setColumnCount(6)
         stats_layout.addWidget(self.stats_table)
 
         self.tabs.addTab(stats_tab, "Статистика")
+
+        # Заполняем фильтры и обновляем таблицу
+        self.update_filter_combos()
         self.update_stats_table()
+
+    def update_filter_combos(self):
+        # Сохраняем текущие выбранные значения
+        current_project = self.filter_project_combo.currentData()
+        current_task = self.filter_task_combo.currentData()
+
+        # Обновляем комбобокс проектов
+        self.filter_project_combo.clear()
+        self.filter_project_combo.addItem("Все проекты", None)
+
+        projects = self.db.get_projects()
+        for project in projects:
+            self.filter_project_combo.addItem(project.name, project.id)
+
+        # Восстанавливаем выбор проекта
+        if current_project:
+            index = self.filter_project_combo.findData(current_project)
+            if index >= 0:
+                self.filter_project_combo.setCurrentIndex(index)
+
+        # Обновляем комбобокс задач
+        self.update_filter_task_combo(current_task)
+
+    def update_filter_task_combo(self, current_task=None):
+        self.filter_task_combo.clear()
+        self.filter_task_combo.addItem("Все задачи", None)
+
+        project_id = self.filter_project_combo.currentData()
+        if project_id:
+            tasks = self.db.get_tasks_for_project(project_id)
+            for task in tasks:
+                self.filter_task_combo.addItem(task.name, task.id)
+
+        if current_task:
+            index = self.filter_task_combo.findData(current_task)
+            if index >= 0:
+                self.filter_task_combo.setCurrentIndex(index)
 
     def setup_timers(self):
         # Таймер для обновления отображения
@@ -269,53 +337,81 @@ class TimerApp(QMainWindow):
         self.timer.reset()
 
     def update_stats_table(self):
-        self.stats_table.setRowCount(0)
+        try:
+            project_id = self.filter_project_combo.currentData()
+            task_id = self.filter_task_combo.currentData()
 
-        # Получаем все записи времени с информацией о проектах и задачах
-        cursor = self.db.conn.cursor()
-        cursor.execute('''
-        SELECT tr.id, p.name AS project_name, t.name AS task_name, 
-               tr.duration_seconds, tr.start_time, tr.was_productive
-        FROM time_records tr
-        JOIN tasks t ON tr.task_id = t.id
-        JOIN projects p ON t.project_id = p.id
-        ORDER BY tr.start_time DESC
-        ''')
+            # Получаем данные с фильтрацией
+            cursor = self.db.conn.cursor()
+            query = '''
+            SELECT tr.id, p.name AS project_name, t.name AS task_name, 
+                   tr.duration_seconds, tr.start_time, tr.was_productive
+            FROM time_records tr
+            JOIN tasks t ON tr.task_id = t.id
+            JOIN projects p ON t.project_id = p.id
+            WHERE 1=1
+            '''
+            params = []
 
-        # Добавляем кнопки действий
-        self.stats_table.setColumnCount(6)  # Добавляем колонку для действий
-        self.stats_table.setHorizontalHeaderLabels(
-            ["Проект", "Задача", "Время", "Дата", "Продуктивно", "Действия"])
+            if project_id:
+                query += ' AND p.id = ?'
+                params.append(project_id)
+            if task_id:
+                query += ' AND t.id = ?'
+                params.append(task_id)
 
-        for row_idx, row in enumerate(cursor.fetchall()):
-            self.stats_table.insertRow(row_idx)
+            query += ' ORDER BY tr.start_time DESC'
 
-            project_item = QTableWidgetItem(row[1])  # project_name
-            project_item.setData(Qt.UserRole, row[0])  # Сохраняем ID записи
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
 
-            task_item = QTableWidgetItem(row[2])  # task_name
+            # Обновляем таблицу
+            self.stats_table.setRowCount(0)
+            self.stats_table.setColumnCount(6)
+            self.stats_table.setHorizontalHeaderLabels(
+                ["Проект", "Задача", "Время", "Дата", "Продуктивно", "Действия"])
 
-            # Форматируем время
-            hours, remainder = divmod(row[3], 3600)
-            minutes, seconds = divmod(remainder, 60)
-            time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-            time_item = QTableWidgetItem(time_str)
+            total_seconds = 0
 
-            date_item = QTableWidgetItem(row[4])
-            productive_item = QTableWidgetItem("Да" if row[5] else "Нет")
+            for row_idx, row in enumerate(rows):
+                self.stats_table.insertRow(row_idx)
 
-            self.stats_table.setItem(row_idx, 0, project_item)
-            self.stats_table.setItem(row_idx, 1, task_item)
-            self.stats_table.setItem(row_idx, 2, time_item)
-            self.stats_table.setItem(row_idx, 3, date_item)
-            self.stats_table.setItem(row_idx, 4, productive_item)
+                project_item = QTableWidgetItem(row[1])
+                task_item = QTableWidgetItem(row[2])
 
-            # Добавляем кнопку удаления
-            btn = QPushButton("Удалить")
-            btn.clicked.connect(lambda _, r=row_idx: self.delete_time_record(r))
-            self.stats_table.setCellWidget(row_idx, 5, btn)
+                # Форматируем время
+                hours, remainder = divmod(row[3], 3600)
+                minutes, seconds = divmod(remainder, 60)
+                time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                time_item = QTableWidgetItem(time_str)
 
-        self.stats_table.resizeColumnsToContents()
+                # Суммируем общее время
+                total_seconds += row[3]
+
+                date_item = QTableWidgetItem(row[4])
+                productive_item = QTableWidgetItem("Да" if row[5] else "Нет")
+
+                self.stats_table.setItem(row_idx, 0, project_item)
+                self.stats_table.setItem(row_idx, 1, task_item)
+                self.stats_table.setItem(row_idx, 2, time_item)
+                self.stats_table.setItem(row_idx, 3, date_item)
+                self.stats_table.setItem(row_idx, 4, productive_item)
+
+                # Кнопка удаления
+                btn = QPushButton("Удалить")
+                btn.clicked.connect(lambda _, r=row_idx: self.delete_time_record(r))
+                self.stats_table.setCellWidget(row_idx, 5, btn)
+
+            # Обновляем общее время
+            total_hours, remainder = divmod(total_seconds, 3600)
+            total_minutes, total_seconds = divmod(remainder, 60)
+            self.total_time_label.setText(
+                f"Общее время: {total_hours:02d}:{total_minutes:02d}:{total_seconds:02d}")
+
+            self.stats_table.resizeColumnsToContents()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"Не удалось обновить статистику: {str(e)}")
 
     def delete_time_record(self, row):
         record_id = self.stats_table.item(row, 0).data(Qt.UserRole)  # Сохраняем ID в данных
