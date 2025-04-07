@@ -14,3 +14,4 @@ log*.txt
 txt/config.txt
 files/l2m/txt/
 db/timer.db
+settings.json
