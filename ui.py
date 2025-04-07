@@ -213,7 +213,7 @@ class TimerApp(QMainWindow):
         # Получаем все записи времени с информацией о проектах и задачах
         cursor = self.db.conn.cursor()
         cursor.execute('''
-        SELECT p.name AS project_name, t.name AS task_name, 
+        SELECT tr.id, p.name AS project_name, t.name AS task_name, 
                tr.duration_seconds, tr.start_time, tr.was_productive
         FROM time_records tr
         JOIN tasks t ON tr.task_id = t.id
@@ -229,17 +229,19 @@ class TimerApp(QMainWindow):
         for row_idx, row in enumerate(cursor.fetchall()):
             self.stats_table.insertRow(row_idx)
 
-            project_item = QTableWidgetItem(row[0])
-            task_item = QTableWidgetItem(row[1])
+            project_item = QTableWidgetItem(row[1])  # project_name
+            project_item.setData(Qt.UserRole, row[0])  # Сохраняем ID записи
+
+            task_item = QTableWidgetItem(row[2])  # task_name
 
             # Форматируем время
-            hours, remainder = divmod(row[2], 3600)
+            hours, remainder = divmod(row[3], 3600)
             minutes, seconds = divmod(remainder, 60)
             time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
             time_item = QTableWidgetItem(time_str)
 
-            date_item = QTableWidgetItem(row[3])
-            productive_item = QTableWidgetItem("Да" if row[4] else "Нет")
+            date_item = QTableWidgetItem(row[4])
+            productive_item = QTableWidgetItem("Да" if row[5] else "Нет")
 
             self.stats_table.setItem(row_idx, 0, project_item)
             self.stats_table.setItem(row_idx, 1, task_item)
