@@ -39,9 +39,9 @@ class TimerApp(QMainWindow):
         menubar = self.menuBar()
         settings_menu = menubar.addMenu('Настройки')
 
-        # Настройка интервала
-        interval_action = QAction('Интервал проверки...', self)
-        interval_action.triggered.connect(self.change_interval)
+        # Настройка интервала проверки
+        interval_action = QAction('Интервал проверки активности...', self)
+        interval_action.triggered.connect(self.change_check_interval)
         settings_menu.addAction(interval_action)
 
         # Включение звука
@@ -49,6 +49,22 @@ class TimerApp(QMainWindow):
         self.sound_action.setChecked(self.settings.enable_sound)
         self.sound_action.triggered.connect(self.toggle_sound)
         settings_menu.addAction(self.sound_action)
+
+    def change_check_interval(self):
+        minutes, ok = QInputDialog.getInt(
+            self, 'Настройка интервала',
+            'Интервал проверки активности (минуты):',
+            value=self.settings.check_interval // 60,
+            min=1, max=120, step=1)
+
+        if ok:
+            self.settings.check_interval = minutes * 60
+            self.settings.save()
+            # Перезапускаем таймер с новым интервалом
+            self.check_timer.stop()
+            self.check_timer.start(self.settings.check_interval * 1000)
+            QMessageBox.information(self, "Сохранено",
+                                    f"Новый интервал проверки: {minutes} минут")
 
     def change_interval(self):
         minutes, ok = QInputDialog.getInt(
@@ -267,12 +283,12 @@ class TimerApp(QMainWindow):
         # Таймер для обновления отображения
         self.display_timer = QTimer(self)
         self.display_timer.timeout.connect(self.update_display)
-        self.display_timer.start(1000)  # Обновление каждую секунду
+        self.display_timer.start(1000)
 
         # Таймер для проверки времени работы
         self.check_timer = QTimer(self)
         self.check_timer.timeout.connect(self.check_work_time)
-        self.check_timer.start(1000)  # Проверка каждую секунду
+        self.check_timer.start(self.settings.check_interval * 1000)  # Используем настройки
 
     def update_projects_combo(self):
         self.project_combo.clear()
@@ -309,21 +325,22 @@ class TimerApp(QMainWindow):
 
     def check_work_time(self):
         if self.timer.is_running:
+            self.timer.pause()  # Приостанавливаем таймер перед показом сообщения
+
             if self.settings.enable_sound:
-                QSound.play("alert.wav")  # Нужен файл alert.wav в папке с программой
+                QSound.play("alert.wav")
 
             reply = QMessageBox.question(
                 self, 'Подтверждение',
                 "Вы все еще работаете над задачей?",
                 QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes
-            )
+                QMessageBox.Yes)
 
-            if reply == QMessageBox.No:
-                self.timer.pause()
-            else:
-                # Сбрасываем таймер проверки
+            if reply == QMessageBox.Yes:
+                self.timer.start()  # Продолжаем работу
                 self.check_timer.start(self.settings.check_interval * 1000)
+            else:
+                self.timer.reset()  # Полностью сбрасываем таймер
 
     def start_timer(self):
         if self.task_combo.currentIndex() == -1:
@@ -487,18 +504,44 @@ class TimerApp(QMainWindow):
             QMessageBox.critical(self, "Ошибка", f"Не удалось обновить статистику: {str(e)}")
 
     def delete_time_record(self, row):
-        record_id = self.stats_table.item(row, 0).data(Qt.UserRole)  # Сохраняем ID в данных
+        # Получаем ID записи из таблицы
+        record_id = self.stats_table.item(row, 0).data(Qt.UserRole)
 
-        reply = QMessageBox.question(
-            self, 'Подтверждение',
-            "Удалить запись времени?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No)
+        # Если ID не установлен, попробуем получить его из базы данных
+        if not record_id:
+            project_name = self.stats_table.item(row, 0).text()
+            task_name = self.stats_table.item(row, 1).text()
+            time_str = self.stats_table.item(row, 2).text()
 
-        if reply == QMessageBox.Yes:
-            self.db.delete_time_record(record_id)
-            self.update_stats_table()
+            # Найдем запись в базе данных
+            cursor = self.db.conn.cursor()
+            cursor.execute('''
+            SELECT tr.id FROM time_records tr
+            JOIN tasks t ON tr.task_id = t.id
+            JOIN projects p ON t.project_id = p.id
+            WHERE p.name = ? AND t.name = ? AND tr.duration_seconds = ?
+            ''', (project_name, task_name, self._time_str_to_seconds(time_str)))
 
+            result = cursor.fetchone()
+            if result:
+                record_id = result[0]
+
+        if record_id:
+            reply = QMessageBox.question(
+                self, 'Подтверждение',
+                "Удалить запись времени?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No)
+
+            if reply == QMessageBox.Yes:
+                if self.db.delete_time_record(record_id):
+                    self.update_stats_table()
+                else:
+                    QMessageBox.warning(self, "Ошибка", "Не удалось удалить запись")
+
+    def _time_str_to_seconds(self, time_str):
+        h, m, s = map(int, time_str.split(':'))
+        return h * 3600 + m * 60 + s
 
     class ProjectDialog(QDialog):
         def __init__(self, parent=None, project=None):
