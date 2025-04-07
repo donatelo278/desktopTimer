@@ -1,0 +1,15 @@
+__pycache__/
+.idea/
+files/txt/
+files/captcha/recaptchaTemp/
+files/imageAmountBalance/
+temp/
+logs/
+venv/
+files/bdTxt/
+files/bdTxt/currentWindow.txt
+txt/
+log.txt
+log*.txt
+txt/config.txt
+files/l2m/txt/
