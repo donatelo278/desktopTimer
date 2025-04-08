@@ -11,7 +11,7 @@ class Task:
     id: int
     project_id: int
     name: str
-
+#stable
 @dataclass
 class TimeRecord:
     id: int
