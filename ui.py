@@ -1,3 +1,5 @@
+import sys
+
 from PyQt5.QtMultimedia import QSound
 from PyQt5.QtMultimedia import QSoundEffect
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -15,37 +17,48 @@ from datetime import datetime, timedelta
 class TimerApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        QApplication.setStyle('Fusion')  # Добавьте эту строку
-        self.settings = Settings()
-        self.settings.load()
-        self.db = Database()
-        self.timer = Timer(self.on_timer_end)
-        self.current_task_id = None
+        try:
+            QApplication.setStyle('Fusion')  # Добавьте эту строку
+            self.settings = Settings()
+            self.settings.load()
 
-        # Добавьте эти строки
-        self.interval_spinbox = None
-        self.sound_checkbox = None
+            # Проверка загрузки настроек
+            if not hasattr(self.settings, 'loop_sound'):
+                self.settings.loop_sound = False
+                self.settings.save()
 
-        # Сначала инициализируем кнопки управления
-        self.add_project_btn = None
-        self.edit_project_btn = None
-        self.del_project_btn = None
-        self.add_task_btn = None
-        self.edit_task_btn = None
-        self.del_task_btn = None
+            self.db = Database()
+            self.timer = Timer(self.on_timer_end)
+            self.current_task_id = None
 
-        self.setup_ui()
-        self.setup_timers()
-        self.setup_settings_menu()  # Добавьте эту строку
+            # Добавьте эти строки
+            self.interval_spinbox = None
+            self.sound_checkbox = None
 
-        # Инициализация звука
-        self.sound_effect = QSoundEffect()
-        sound_file = QUrl.fromLocalFile("audio/audio1.wav")
-        if sound_file.isValid():
-            self.sound_effect.setSource(sound_file)
-            self.sound_effect.setVolume(0.5)  # Установим комфортную громкость
-        else:
-            print("Не удалось загрузить звуковой файл")
+            # Сначала инициализируем кнопки управления
+            self.add_project_btn = None
+            self.edit_project_btn = None
+            self.del_project_btn = None
+            self.add_task_btn = None
+            self.edit_task_btn = None
+            self.del_task_btn = None
+
+            self.setup_ui()
+            self.setup_timers()
+            self.setup_settings_menu()  # Добавьте эту строку
+
+            # Инициализация звука
+            self.sound_effect = QSoundEffect()
+            sound_file = QUrl.fromLocalFile("audio/audio1.wav")
+            if sound_file.isValid():
+                self.sound_effect.setSource(sound_file)
+                self.sound_effect.setVolume(0.5)  # Установим комфортную громкость
+            else:
+                print("Не удалось загрузить звуковой файл")
+        except Exception as e:
+            print(f"Ошибка инициализации: {e}")
+            QMessageBox.critical(None, "Ошибка", f"Ошибка запуска: {str(e)}")
+            sys.exit(1)
 
     def save_settings(self, dialog):
         """Сохраняет настройки и перезапускает таймер"""
@@ -62,46 +75,55 @@ class TimerApp(QMainWindow):
         QMessageBox.information(self, "Сохранено", "Настройки успешно сохранены!")
 
     def show_settings_dialog(self):
-        print("Открытие диалога настроек...")  # Для отладки
-        print(f"Текущие настройки: interval={self.settings.check_interval}, sound={self.settings.enable_sound}")
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Настройки")
-        layout = QVBoxLayout()
+        try:
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Настройки")
+            dialog.setWindowModality(Qt.WindowModal)
 
-        # Настройка интервала (минуты)
-        interval_layout = QHBoxLayout()
-        interval_label = QLabel("Интервал проверки активности (минут):")
-        self.interval_spinbox = QSpinBox()  # Теперь это поле класса
-        self.interval_spinbox.setRange(1, 120)  # от 1 до 120 минут
-        self.interval_spinbox.setValue(self.settings.check_interval // 60)
-        interval_layout.addWidget(interval_label)
-        interval_layout.addWidget(self.interval_spinbox)
-        layout.addLayout(interval_layout)
+            layout = QVBoxLayout()
 
-        # Чекбокс звука
-        self.sound_checkbox = QCheckBox("Включить звуковое уведомление")  # Теперь это поле класса
-        self.sound_checkbox.setChecked(self.settings.enable_sound)
-        layout.addWidget(self.sound_checkbox)
+            # Настройка интервала
+            interval_layout = QHBoxLayout()
+            interval_label = QLabel("Интервал проверки (минут):")
+            self.interval_spinbox = QSpinBox()
+            self.interval_spinbox.setRange(1, 120)
+            self.interval_spinbox.setValue(int(self.settings.check_interval // 60))  # Явное преобразование в int
+            interval_layout.addWidget(interval_label)
+            interval_layout.addWidget(self.interval_spinbox)
+            layout.addLayout(interval_layout)
 
-        # Новый чекбокс для циклического звука
-        self.loop_sound_checkbox = QCheckBox("Цикличное воспроизведение звука")
-        self.loop_sound_checkbox.setChecked(self.settings.loop_sound)
-        self.loop_sound_checkbox.setEnabled(self.settings.enable_sound)  # Активен только если звук включен
-        layout.addWidget(self.loop_sound_checkbox)
+            # Чекбокс звука
+            self.sound_checkbox = QCheckBox("Включить звук")
+            # Убедимся, что значение булевое
+            sound_enabled = bool(self.settings.enable_sound)
+            self.sound_checkbox.setChecked(sound_enabled)
+            layout.addWidget(self.sound_checkbox)
 
-        # Связываем чекбоксы
-        self.sound_checkbox.stateChanged.connect(
-            lambda state: self.loop_sound_checkbox.setEnabled(state == Qt.Checked)
-        )
+            # Чекбокс цикличного звука
+            self.loop_sound_checkbox = QCheckBox("Цикличный звук")
+            # Убедимся, что значение булевое
+            loop_sound_enabled = bool(self.settings.loop_sound)
+            self.loop_sound_checkbox.setChecked(loop_sound_enabled)
+            self.loop_sound_checkbox.setEnabled(sound_enabled)  # Зависит от основного чекбокса
+            layout.addWidget(self.loop_sound_checkbox)
 
-        # Кнопки OK/Отмена
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(lambda: self.save_settings(dialog))
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
+            # Связываем чекбоксы
+            self.sound_checkbox.stateChanged.connect(
+                lambda state: self.loop_sound_checkbox.setEnabled(state == Qt.Checked)
+            )
 
-        dialog.setLayout(layout)
-        dialog.exec_()
+            # Кнопки
+            buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+            buttons.accepted.connect(lambda: self.save_settings(dialog))
+            buttons.rejected.connect(dialog.reject)
+            layout.addWidget(buttons)
+
+            dialog.setLayout(layout)
+            dialog.exec_()
+
+        except Exception as e:
+            print(f"Ошибка в show_settings_dialog: {repr(e)}")
+            QMessageBox.critical(self, "Ошибка", f"Не удалось открыть настройки: {str(e)}")
 
     def setup_settings_menu(self):
         print("Создание меню настроек...")  # Добавьте эту строку для отладки
@@ -439,15 +461,9 @@ class TimerApp(QMainWindow):
             elapsed = self.timer.get_elapsed_time()
             self.timer.pause()
 
-            # Воспроизводим звук
-            if self.settings.enable_sound and self.sound_effect.isLoaded():
-                if self.settings.loop_sound:
-                    # Циклическое воспроизведение
-                    self.sound_effect.setLoopCount(QSoundEffect.Infinite)
-                else:
-                    # Однократное воспроизведение
-                    self.sound_effect.setLoopCount(1)
-                self.sound_effect.play()
+            # Воспроизведение звука в отдельном потоке
+            if self.settings.enable_sound:
+                QTimer.singleShot(0, self.play_sound)
 
             reply = QMessageBox.question(
                 self, 'Подтверждение',
@@ -455,9 +471,9 @@ class TimerApp(QMainWindow):
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.Yes
             )
-
-            # Останавливаем звук независимо от ответа
-            self.sound_effect.stop()
+            # Остановка звука
+            if self.settings.enable_sound:
+                self.sound_effect.stop()
 
             if reply == QMessageBox.Yes:
                 self.save_time_record(elapsed)
@@ -472,6 +488,17 @@ class TimerApp(QMainWindow):
         finally:
             # Всегда перезапускаем таймер проверки
             self.check_timer.start(self.settings.check_interval * 1000)
+
+    def play_sound(self):
+        """Воспроизведение звука с учетом настроек"""
+        try:
+            if self.settings.loop_sound:
+                self.sound_effect.setLoopCount(QSoundEffect.Infinite)
+            else:
+                self.sound_effect.setLoopCount(1)
+            self.sound_effect.play()
+        except Exception as e:
+            print(f"Ошибка воспроизведения звука: {e}")
 
     def start_timer(self):
         if self.task_combo.currentIndex() == -1:
