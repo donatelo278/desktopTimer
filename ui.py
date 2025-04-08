@@ -3,8 +3,8 @@ from PyQt5.QtMultimedia import QSoundEffect
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QLabel, QPushButton, QComboBox, QMessageBox, QTabWidget,
                              QTableWidget, QTableWidgetItem, QDialog, QLineEdit, QDialogButtonBox,
-                             QMessageBox, QInputDialog, QAction, QCheckBox, QSpinBox)
-from PyQt5.QtCore import QTimer, Qt, QUrl
+                             QMessageBox, QInputDialog, QAction, QCheckBox, QSpinBox, QDateEdit)
+from PyQt5.QtCore import QTimer, Qt, QUrl, QDate
 from models import Project, Task, TimeRecord
 from database import Database
 from settings import Settings
@@ -124,8 +124,7 @@ class TimerApp(QMainWindow):
     def setup_ui(self):
         self.setWindowTitle("Task Timer")
         self.setGeometry(100, 100, 600, 400)
-        # Добавьте эту строку для инициализации меню настроек
-        self.setup_settings_menu()
+
 
         # Главный виджет
         main_widget = QWidget()
@@ -146,10 +145,6 @@ class TimerApp(QMainWindow):
         # Теперь можно безопасно обновлять комбобоксы
         self.update_projects_combo()  # Moved after setup_timer_tab()
 
-        # Добавьте временную кнопку для тестирования
-        test_btn = QPushButton("Тест настроек")
-        test_btn.clicked.connect(self.show_settings_dialog)
-        layout.addWidget(test_btn)
 
     def setup_management_buttons(self):
         """Инициализация кнопок управления"""
@@ -252,18 +247,39 @@ class TimerApp(QMainWindow):
         filter_widget = QWidget()
         filter_layout = QHBoxLayout(filter_widget)
 
+        # Фильтр по проекту
         self.filter_project_combo = QComboBox()
         self.filter_project_combo.addItem("Все проекты", None)
+
+        # Фильтр по задаче
         self.filter_task_combo = QComboBox()
         self.filter_task_combo.addItem("Все задачи", None)
 
-        self.filter_project_combo.currentIndexChanged.connect(
-            lambda: self.update_filter_task_combo())
+        # Фильтры по дате
+        date_filter_widget = QWidget()
+        date_filter_layout = QHBoxLayout(date_filter_widget)
 
+        # Дата "от"
+        self.date_from_edit = QDateEdit()
+        self.date_from_edit.setDisplayFormat("dd.MM.yyyy")
+        self.date_from_edit.setDate(datetime.now().date())
+
+        # Дата "до"
+        self.date_to_edit = QDateEdit()
+        self.date_to_edit.setDisplayFormat("dd.MM.yyyy")
+        self.date_to_edit.setDate(datetime.now().date())
+
+        date_filter_layout.addWidget(QLabel("Дата от:"))
+        date_filter_layout.addWidget(self.date_from_edit)
+        date_filter_layout.addWidget(QLabel("до:"))
+        date_filter_layout.addWidget(self.date_to_edit)
+
+        # Собираем все фильтры
         filter_layout.addWidget(QLabel("Проект:"))
         filter_layout.addWidget(self.filter_project_combo)
         filter_layout.addWidget(QLabel("Задача:"))
         filter_layout.addWidget(self.filter_task_combo)
+        filter_layout.addWidget(date_filter_widget)
 
         self.apply_filter_btn = QPushButton("Применить фильтр")
         self.apply_filter_btn.clicked.connect(self.update_stats_table)
@@ -271,21 +287,20 @@ class TimerApp(QMainWindow):
 
         stats_layout.addWidget(filter_widget)
 
-        # Общее время
+        # Общее время (добавили отсутствующий элемент)
         self.total_time_label = QLabel("Общее время: 00:00:00")
         self.total_time_label.setStyleSheet("font-size: 14px; font-weight: bold;")
         stats_layout.addWidget(self.total_time_label)
 
-        # Таблица
+        # Таблица (добавили отсутствующий элемент)
         self.stats_table = QTableWidget()
         self.stats_table.setColumnCount(6)
+        self.stats_table.setHorizontalHeaderLabels(
+            ["Проект", "Задача", "Время", "Дата", "Продуктивно", "Действия"])
         stats_layout.addWidget(self.stats_table)
 
+        # Добавляем вкладку (это было пропущено)
         self.tabs.addTab(stats_tab, "Статистика")
-
-        # Заполняем фильтры и обновляем таблицу
-        self.update_filter_combos()
-        self.update_stats_table()
 
     def update_filter_combos(self):
         # Сохраняем текущие выбранные значения
@@ -308,6 +323,11 @@ class TimerApp(QMainWindow):
 
         # Обновляем комбобокс задач
         self.update_filter_task_combo(current_task)
+
+        # Устанавливаем даты по умолчанию (сегодня)
+        today = QDate.currentDate()
+        self.date_from_edit.setDate(today)
+        self.date_to_edit.setDate(today)
 
     def update_filter_task_combo(self, current_task=None):
         self.filter_task_combo.clear()
@@ -502,17 +522,24 @@ class TimerApp(QMainWindow):
             project_id = self.filter_project_combo.currentData()
             task_id = self.filter_task_combo.currentData()
 
+            # Получаем даты из полей ввода
+            date_from = self.date_from_edit.date().toPyDate()
+            date_to = self.date_to_edit.date().toPyDate()
+
+            # Корректируем date_to, чтобы включить весь день
+            date_to = datetime.combine(date_to, datetime.max.time()).date()
+
             # Получаем данные с фильтрацией
             cursor = self.db.conn.cursor()
             query = '''
-            SELECT tr.id, p.name AS project_name, t.name AS task_name, 
-                   tr.duration_seconds, tr.start_time, tr.was_productive
-            FROM time_records tr
-            JOIN tasks t ON tr.task_id = t.id
-            JOIN projects p ON t.project_id = p.id
-            WHERE 1=1
-            '''
-            params = []
+                SELECT tr.id, p.name AS project_name, t.name AS task_name, 
+                       tr.duration_seconds, tr.start_time, tr.was_productive
+                FROM time_records tr
+                JOIN tasks t ON tr.task_id = t.id
+                JOIN projects p ON t.project_id = p.id
+                WHERE date(tr.start_time) BETWEEN ? AND ?
+                '''
+            params = [date_from.isoformat(), date_to.isoformat()]
 
             if project_id:
                 query += ' AND p.id = ?'
