@@ -88,8 +88,11 @@ class Database:
         INSERT INTO time_records 
         (task_id, start_time, end_time, duration_seconds, was_productive) 
         VALUES (?, ?, ?, ?, ?)''',
-                       (task_id, start_time.isoformat(), end_time.isoformat(),  # Преобразуем datetime в строку ISO формата
-                        duration_seconds, was_productive))
+                       (task_id,
+                        start_time.strftime("%Y-%m-%d %H:%M:%S"),  # Форматируем дату
+                        end_time.strftime("%Y-%m-%d %H:%M:%S"),  # перед сохранением
+                        duration_seconds,
+                        was_productive))
         self.conn.commit()
         return TimeRecord(
             id=cursor.lastrowid,
