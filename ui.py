@@ -43,6 +43,7 @@ class TimerApp(QMainWindow):
         sound_file = QUrl.fromLocalFile("audio/audio1.wav")
         if sound_file.isValid():
             self.sound_effect.setSource(sound_file)
+            self.sound_effect.setVolume(0.5)  # Установим комфортную громкость
         else:
             print("Не удалось загрузить звуковой файл")
 
@@ -50,6 +51,7 @@ class TimerApp(QMainWindow):
         """Сохраняет настройки и перезапускает таймер"""
         self.settings.check_interval = self.interval_spinbox.value() * 60
         self.settings.enable_sound = self.sound_checkbox.isChecked()
+        self.settings.loop_sound = self.loop_sound_checkbox.isChecked()  # Сохраняем новую настройку
         self.settings.save()
 
         # Перезапускаем таймер проверки
@@ -80,6 +82,17 @@ class TimerApp(QMainWindow):
         self.sound_checkbox = QCheckBox("Включить звуковое уведомление")  # Теперь это поле класса
         self.sound_checkbox.setChecked(self.settings.enable_sound)
         layout.addWidget(self.sound_checkbox)
+
+        # Новый чекбокс для циклического звука
+        self.loop_sound_checkbox = QCheckBox("Цикличное воспроизведение звука")
+        self.loop_sound_checkbox.setChecked(self.settings.loop_sound)
+        self.loop_sound_checkbox.setEnabled(self.settings.enable_sound)  # Активен только если звук включен
+        layout.addWidget(self.loop_sound_checkbox)
+
+        # Связываем чекбоксы
+        self.sound_checkbox.stateChanged.connect(
+            lambda state: self.loop_sound_checkbox.setEnabled(state == Qt.Checked)
+        )
 
         # Кнопки OK/Отмена
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -426,8 +439,14 @@ class TimerApp(QMainWindow):
             elapsed = self.timer.get_elapsed_time()
             self.timer.pause()
 
-            # Убедимся, что звук загружен
+            # Воспроизводим звук
             if self.settings.enable_sound and self.sound_effect.isLoaded():
+                if self.settings.loop_sound:
+                    # Циклическое воспроизведение
+                    self.sound_effect.setLoopCount(QSoundEffect.Infinite)
+                else:
+                    # Однократное воспроизведение
+                    self.sound_effect.setLoopCount(1)
                 self.sound_effect.play()
 
             reply = QMessageBox.question(
@@ -436,6 +455,9 @@ class TimerApp(QMainWindow):
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.Yes
             )
+
+            # Останавливаем звук независимо от ответа
+            self.sound_effect.stop()
 
             if reply == QMessageBox.Yes:
                 self.save_time_record(elapsed)
