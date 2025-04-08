@@ -650,10 +650,13 @@ class TimerApp(QMainWindow):
                 project_item = QTableWidgetItem(row[1])
                 task_item = QTableWidgetItem(row[2])
 
+                # Сохраняем ID записи в UserRole первого элемента строки
+                project_item.setData(Qt.UserRole, row[0])  # row[0] - это tr.id из запроса
+
                 # Форматируем время
                 hours, remainder = divmod(row[3], 3600)
                 minutes, seconds = divmod(remainder, 60)
-                time_str = f"{hours} ч {minutes} мин {seconds} сек"
+                time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
                 time_item = QTableWidgetItem(time_str)
 
                 # Форматируем дату
@@ -693,29 +696,23 @@ class TimerApp(QMainWindow):
             QMessageBox.critical(self, "Ошибка", f"Не удалось обновить статистику: {str(e)}")
 
     def delete_time_record(self, row):
-        # Получаем ID записи из таблицы
-        record_id = self.stats_table.item(row, 0).data(Qt.UserRole)
+        try:
 
-        # Если ID не установлен, попробуем получить его из базы данных
-        if not record_id:
-            project_name = self.stats_table.item(row, 0).text()
-            task_name = self.stats_table.item(row, 1).text()
-            time_str = self.stats_table.item(row, 2).text()
+            # Получаем ID записи из скрытых данных ячейки
+            record_id_item = self.stats_table.item(row, 0)  # Берем первую ячейку строки
 
-            # Найдем запись в базе данных
-            cursor = self.db.conn.cursor()
-            cursor.execute('''
-            SELECT tr.id FROM time_records tr
-            JOIN tasks t ON tr.task_id = t.id
-            JOIN projects p ON t.project_id = p.id
-            WHERE p.name = ? AND t.name = ? AND tr.duration_seconds = ?
-            ''', (project_name, task_name, self._time_str_to_seconds(time_str)))
+            if not record_id_item:
+                QMessageBox.warning(self, "Ошибка", "Не удалось определить запись для удаления")
+                return
 
-            result = cursor.fetchone()
-            if result:
-                record_id = result[0]
+            # Получаем ID записи из UserRole
+            record_id = record_id_item.data(Qt.UserRole)
+            print(f"Пытаемся удалить запись с ID: {record_id}")
+            print(f"Тип ID: {type(record_id)}")
+            if not record_id:
+                QMessageBox.warning(self, "Ошибка", "Не удалось получить ID записи")
+                return
 
-        if record_id:
             reply = QMessageBox.question(
                 self, 'Подтверждение',
                 "Удалить запись времени?",
@@ -725,12 +722,38 @@ class TimerApp(QMainWindow):
             if reply == QMessageBox.Yes:
                 if self.db.delete_time_record(record_id):
                     self.update_stats_table()
+                    QMessageBox.information(self, "Успех", "Запись успешно удалена")
                 else:
                     QMessageBox.warning(self, "Ошибка", "Не удалось удалить запись")
+        except Exception as e:
+            print(f"Ошибка при удалении записи: {e}")
+            QMessageBox.critical(self, "Ошибка", f"Не удалось удалить запись: {str(e)}")
 
     def _time_str_to_seconds(self, time_str):
-        h, m, s = map(int, time_str.split(':'))
-        return h * 3600 + m * 60 + s
+        """Конвертирует строку времени в секунды. Поддерживает форматы:
+        'HH:MM:SS', 'H ч M мин S сек', 'H hours M minutes S seconds'"""
+        try:
+            # Пробуем формат "HH:MM:SS"
+            if ':' in time_str:
+                h, m, s = map(int, time_str.split(':'))
+                return h * 3600 + m * 60 + s
+
+            # Пробуем формат "X ч Y мин Z сек"
+            parts = time_str.split()
+            h = m = s = 0
+
+            for i in range(len(parts)):
+                if parts[i] == 'ч' or parts[i] == 'hours':
+                    h = int(parts[i - 1])
+                elif parts[i] == 'мин' or parts[i] == 'minutes':
+                    m = int(parts[i - 1])
+                elif parts[i] == 'сек' or parts[i] == 'seconds':
+                    s = int(parts[i - 1])
+
+            return h * 3600 + m * 60 + s
+        except Exception as e:
+            print(f"Ошибка конвертации времени '{time_str}': {e}")
+            return 0
 
     class ProjectDialog(QDialog):
         def __init__(self, parent=None, project=None):
