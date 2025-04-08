@@ -274,6 +274,17 @@ class TimerApp(QMainWindow):
         date_filter_layout.addWidget(QLabel("до:"))
         date_filter_layout.addWidget(self.date_to_edit)
 
+        # Добавляем обработчик изменения проекта
+        self.filter_project_combo.currentIndexChanged.connect(
+            lambda: self.update_filter_task_combo()
+        )
+
+        # Добавляем обработчики изменений фильтров
+        self.filter_project_combo.currentIndexChanged.connect(self.update_stats_table)
+        self.filter_task_combo.currentIndexChanged.connect(self.update_stats_table)
+        self.date_from_edit.dateChanged.connect(self.update_stats_table)
+        self.date_to_edit.dateChanged.connect(self.update_stats_table)
+
         # Собираем все фильтры
         filter_layout.addWidget(QLabel("Проект:"))
         filter_layout.addWidget(self.filter_project_combo)
@@ -301,11 +312,17 @@ class TimerApp(QMainWindow):
 
         # Добавляем вкладку (это было пропущено)
         self.tabs.addTab(stats_tab, "Статистика")
+        # Заполняем фильтры данными
+        self.update_filter_combos()
 
     def update_filter_combos(self):
         # Сохраняем текущие выбранные значения
         current_project = self.filter_project_combo.currentData()
         current_task = self.filter_task_combo.currentData()
+
+        # Блокируем сигналы, чтобы не вызывать обновление задач при заполнении проектов
+        self.filter_project_combo.blockSignals(True)
+        self.filter_task_combo.blockSignals(True)
 
         # Обновляем комбобокс проектов
         self.filter_project_combo.clear()
@@ -321,15 +338,26 @@ class TimerApp(QMainWindow):
             if index >= 0:
                 self.filter_project_combo.setCurrentIndex(index)
 
-        # Обновляем комбобокс задач
+        # Обновляем комбобокс задач для выбранного проекта
         self.update_filter_task_combo(current_task)
+
+        # Разблокируем сигналы
+        self.filter_project_combo.blockSignals(False)
+        self.filter_task_combo.blockSignals(False)
 
         # Устанавливаем даты по умолчанию (сегодня)
         today = QDate.currentDate()
         self.date_from_edit.setDate(today)
         self.date_to_edit.setDate(today)
 
+        print(f"Получено проектов: {len(projects)}")  # Для отладки
+        for p in projects:
+            print(f"Проект: {p.id} - {p.name}")
+
     def update_filter_task_combo(self, current_task=None):
+        # Сохраняем текущий выбор
+        current_task_id = current_task if current_task else self.filter_task_combo.currentData()
+
         self.filter_task_combo.clear()
         self.filter_task_combo.addItem("Все задачи", None)
 
@@ -339,8 +367,9 @@ class TimerApp(QMainWindow):
             for task in tasks:
                 self.filter_task_combo.addItem(task.name, task.id)
 
-        if current_task:
-            index = self.filter_task_combo.findData(current_task)
+        # Восстанавливаем выбор задачи
+        if current_task_id:
+            index = self.filter_task_combo.findData(current_task_id)
             if index >= 0:
                 self.filter_task_combo.setCurrentIndex(index)
 
