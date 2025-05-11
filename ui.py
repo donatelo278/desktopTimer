@@ -466,21 +466,54 @@ class TimerApp(QMainWindow):
                     self.sound_effect.setLoopCount(QSoundEffect.Infinite)
                 self.sound_effect.play()
 
-            reply = QMessageBox.question(
-                self, 'Подтверждение',
-                f"Вы работали последние {elapsed // 60} мин. {elapsed % 60} сек.?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes
-            )
+            # Создаем диалог для редактирования времени
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Подтверждение времени")
+            layout = QVBoxLayout(dialog)
 
-            self.sound_effect.stop()
+            # Добавляем информацию о времени
+            time_label = QLabel(f"Вы работали последние {elapsed // 60} мин. {elapsed % 60} сек.")
+            layout.addWidget(time_label)
 
-            if reply == QMessageBox.Yes:
-                self.save_time_record(elapsed)  # Сохраняем время
+            # Добавляем спинбокс для редактирования минут
+            minutes_layout = QHBoxLayout()
+            minutes_label = QLabel("Минуты:")
+            self.minutes_spinbox = QSpinBox()
+            self.minutes_spinbox.setRange(0, 999)
+            self.minutes_spinbox.setValue(elapsed // 60)
+            minutes_layout.addWidget(minutes_label)
+            minutes_layout.addWidget(self.minutes_spinbox)
+            layout.addLayout(minutes_layout)
+
+            # Добавляем спинбокс для редактирования секунд
+            seconds_layout = QHBoxLayout()
+            seconds_label = QLabel("Секунды:")
+            self.seconds_spinbox = QSpinBox()
+            self.seconds_spinbox.setRange(0, 59)
+            self.seconds_spinbox.setValue(elapsed % 60)
+            seconds_layout.addWidget(seconds_label)
+            seconds_layout.addWidget(self.seconds_spinbox)
+            layout.addLayout(seconds_layout)
+
+            # Кнопки подтверждения
+            buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+            buttons.accepted.connect(dialog.accept)
+            buttons.rejected.connect(dialog.reject)
+            layout.addWidget(buttons)
+
+            if dialog.exec_() == QDialog.Accepted:
+                # Получаем отредактированное время
+                new_minutes = self.minutes_spinbox.value()
+                new_seconds = self.seconds_spinbox.value()
+                edited_elapsed = new_minutes * 60 + new_seconds
+
+                self.sound_effect.stop()
+                self.save_time_record(edited_elapsed)
                 self.timer.reset()
-                if was_running:  # Перезапускаем только если таймер был активен
+                if was_running:
                     self.timer.start()
             else:
+                self.sound_effect.stop()
                 self.timer.reset()
 
         except Exception as e:
@@ -538,19 +571,53 @@ class TimerApp(QMainWindow):
 
             elapsed = self.timer.get_elapsed_time()
             if elapsed > 0:
-                reply = QMessageBox.question(
-                    self, 'Сохранение времени',
-                    f"Сохранить {self.timer.format_time(elapsed)} работы?",
-                    QMessageBox.Yes | QMessageBox.No,
-                    QMessageBox.Yes)
+                # Создаем диалог для редактирования времени
+                dialog = QDialog(self)
+                dialog.setWindowTitle("Подтверждение времени")
+                layout = QVBoxLayout(dialog)
 
-                if reply == QMessageBox.Yes:
-                    if self.save_time_record(elapsed):
+                # Добавляем информацию о времени
+                time_label = QLabel(f"Вы работали {self.timer.format_time(elapsed)}")
+                layout.addWidget(time_label)
+
+                # Добавляем спинбокс для редактирования минут
+                minutes_layout = QHBoxLayout()
+                minutes_label = QLabel("Минуты:")
+                self.minutes_spinbox = QSpinBox()
+                self.minutes_spinbox.setRange(0, 999)
+                self.minutes_spinbox.setValue(elapsed // 60)
+                minutes_layout.addWidget(minutes_label)
+                minutes_layout.addWidget(self.minutes_spinbox)
+                layout.addLayout(minutes_layout)
+
+                # Добавляем спинбокс для редактирования секунд
+                seconds_layout = QHBoxLayout()
+                seconds_label = QLabel("Секунды:")
+                self.seconds_spinbox = QSpinBox()
+                self.seconds_spinbox.setRange(0, 59)
+                self.seconds_spinbox.setValue(elapsed % 60)
+                seconds_layout.addWidget(seconds_label)
+                seconds_layout.addWidget(self.seconds_spinbox)
+                layout.addLayout(seconds_layout)
+
+                # Кнопки подтверждения
+                buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+                buttons.accepted.connect(dialog.accept)
+                buttons.rejected.connect(dialog.reject)
+                layout.addWidget(buttons)
+
+                if dialog.exec_() == QDialog.Accepted:
+                    # Получаем отредактированное время
+                    new_minutes = self.minutes_spinbox.value()
+                    new_seconds = self.seconds_spinbox.value()
+                    edited_elapsed = new_minutes * 60 + new_seconds
+
+                    if self.save_time_record(edited_elapsed):
                         self.timer.reset()
                         self.update_display()
-                    else:
-                        # Если сохранение не удалось, не сбрасываем таймер
-                        return
+                else:
+                    self.timer.reset()
+                    self.update_display()
             else:
                 self.timer.reset()
                 self.update_display()
