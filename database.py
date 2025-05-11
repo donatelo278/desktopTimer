@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from typing import List
 from datetime import datetime
@@ -6,6 +7,8 @@ from models import Project, Task, TimeRecord
 
 class Database:
     def __init__(self, db_path='db/timer.db'):
+        # Создаем папку db, если ее нет
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
         self.conn = sqlite3.connect(db_path)
         self._create_tables()
 
